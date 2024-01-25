@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"math/rand"
@@ -417,6 +418,30 @@ func (fe *frontendServer) logoutHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Location", "/")
 	w.WriteHeader(http.StatusFound)
+}
+
+func chatBotHandler(w http.ResponseWriter, r *http.Request) {
+	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
+	log.Debug("chatbot")
+	type message struct {
+		Message string `json:"message"`
+	}
+
+	type response struct {
+		Message string `json:"message"`
+	}
+	// get the message from the request
+	var m message
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		log.WithField("error", err).Warn("failed to decode request")
+		return
+	}
+
+	time.Sleep(3 * time.Second)
+	// respond with the same message
+	json.NewEncoder(w).Encode(response{Message: fmt.Sprintf("Bot Response: %s", m.Message)})
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (fe *frontendServer) setCurrencyHandler(w http.ResponseWriter, r *http.Request) {
