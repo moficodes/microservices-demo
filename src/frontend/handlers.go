@@ -437,6 +437,8 @@ func chatBotHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: call the llm service and respond with the message.
+
 	time.Sleep(3 * time.Second)
 	// respond with the same message
 	json.NewEncoder(w).Encode(response{Message: fmt.Sprintf("Bot Response: %s", m.Message)})
