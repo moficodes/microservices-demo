@@ -68,9 +68,11 @@
     </div>
   </div>
 
+  {{ if $.is_bot_enabled }}
   <div>
     {{ template "bot" .}}
   </div>
+  `{{ end }}
 
 </main>
 

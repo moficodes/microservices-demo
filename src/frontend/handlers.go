@@ -15,10 +15,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -43,6 +45,7 @@ type platformDetails struct {
 var (
 	frontendMessage = strings.TrimSpace(os.Getenv("FRONTEND_MESSAGE"))
 	isCymbalBrand   = "true" == strings.ToLower(os.Getenv("CYMBAL_BRANDING"))
+	isBotEnabled    = "true" == strings.ToLower(os.Getenv("BOT_ENABLED"))
 	templates       = template.Must(template.New("").
 			Funcs(template.FuncMap{
 			"renderMoney":        renderMoney,
@@ -117,6 +120,7 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 		"platform_css":      plat.css,
 		"platform_name":     plat.provider,
 		"is_cymbal_brand":   isCymbalBrand,
+		"is_bot_enabled":    isBotEnabled,
 		"deploymentDetails": deploymentDetailsMap,
 		"frontendMessage":   frontendMessage,
 	}); err != nil {
@@ -213,6 +217,7 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 		"platform_css":      plat.css,
 		"platform_name":     plat.provider,
 		"is_cymbal_brand":   isCymbalBrand,
+		"is_bot_enabled":    isBotEnabled,
 		"deploymentDetails": deploymentDetailsMap,
 		"frontendMessage":   frontendMessage,
 		"packagingInfo":     packagingInfo,
@@ -427,9 +432,39 @@ func chatBotHandler(w http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 	}
 
-	type response struct {
+	type Response struct {
 		Message string `json:"message"`
 	}
+
+	type Parameters struct {
+		BestOf              int      `json:"best_of,omitempty"`
+		DecoderInputDetails bool     `json:"decoder_input_details,omitempty"`
+		Details             bool     `json:"details,omitempty"`
+		DoSample            bool     `json:"do_sample,omitempty"`
+		MaxNewTokens        int      `json:"max_new_tokens,omitempty"`
+		RepetitionPenalty   float64  `json:"repetition_penalty,omitempty"`
+		ReturnFullText      bool     `json:"return_full_text,omitempty"`
+		Seed                int      `json:"seed,omitempty"`
+		Stop                []string `json:"stop,omitempty"`
+		Temperature         float64  `json:"temperature,omitempty"`
+		TopK                int      `json:"top_k,omitempty"`
+		TopNTokens          int      `json:"top_n_tokens,omitempty"`
+		TopP                float64  `json:"top_p,omitempty"`
+		Truncate            any      `json:"truncate,omitempty"`
+		TypicalP            float64  `json:"typical_p,omitempty"`
+		Watermark           bool     `json:"watermark,omitempty"`
+	}
+
+	type Input struct {
+		Inputs     string     `json:"inputs,omitempty"`
+		Parameters Parameters `json:"parameters,omitempty"`
+	}
+
+	type LLMResponse struct {
+		GeneratedText string         `json:"generated_text"`
+		Details       map[string]any `json:"details"`
+	}
+
 	// get the message from the request
 	var m message
 	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
@@ -439,9 +474,55 @@ func chatBotHandler(w http.ResponseWriter, r *http.Request) {
 
 	// TODO: call the llm service and respond with the message.
 
-	time.Sleep(3 * time.Second)
+	input := Input{
+		Inputs: m.Message,
+		Parameters: Parameters{
+			BestOf:            1,
+			Details:           true,
+			DoSample:          true,
+			MaxNewTokens:      400,
+			RepetitionPenalty: 1.03,
+			ReturnFullText:    false,
+			Temperature:       0.5,
+			TopK:              10,
+			TopNTokens:        5,
+			TopP:              0.95,
+			TypicalP:          0.95,
+		},
+	}
+
+	var response LLMResponse
+
+	url := "http://llm-service.llm.svc.cluster.local/generate"
+	b := new(bytes.Buffer)
+	json.NewEncoder(b).Encode(&input)
+	req, err := http.NewRequest(http.MethodPost, url, b)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create request"), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to send request"), http.StatusInternalServerError)
+		return
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to read response"), http.StatusInternalServerError)
+		return
+	}
+
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to unmarshal body"), http.StatusInternalServerError)
+		return
+	}
+
 	// respond with the same message
-	json.NewEncoder(w).Encode(response{Message: fmt.Sprintf("Bot Response: %s", m.Message)})
+	json.NewEncoder(w).Encode(Response{Message: fmt.Sprintf("Bot Response: %s", response.GeneratedText)})
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -491,6 +572,7 @@ func renderHTTPError(log logrus.FieldLogger, r *http.Request, w http.ResponseWri
 		"status_code":       code,
 		"status":            http.StatusText(code),
 		"is_cymbal_brand":   isCymbalBrand,
+		"is_bot_enabled":    isBotEnabled,
 		"deploymentDetails": deploymentDetailsMap,
 		"frontendMessage":   frontendMessage,
 	}); templateErr != nil {

@@ -37,6 +37,7 @@ spec:
         runAsUser: 1000
       containers:
         - name: server
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -86,6 +87,10 @@ spec:
           #   value: "aws"
           - name: ENABLE_PROFILER
             value: "0"
+          - name: BOT_ENABLED
+            value: "false"
+          - name: MODEL_URL
+            value: "llm-service.default.svc.cluster.local"
           # - name: CYMBAL_BRANDING
           #   value: "true"
           # - name: FRONTEND_MESSAGE
